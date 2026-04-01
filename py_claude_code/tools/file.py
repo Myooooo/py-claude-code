@@ -56,6 +56,10 @@ class FileEditParams(ToolParameters):
     file_path: str = Field(..., description="要编辑的文件路径")
     old_string: str = Field(..., description="要替换的旧字符串")
     new_string: str = Field(..., description="替换后的新字符串")
+    replace_all: bool = Field(
+        default=False,
+        description="是否替换所有匹配项，默认只替换第一个"
+    )
 
     @field_validator("file_path")
     @classmethod
@@ -245,7 +249,8 @@ class FileEditTool(BaseTool):
 注意：
 - old_string 必须是文件中存在的完整内容
 - old_string 和 new_string 都必须准确无误
-- 如果 old_string 在文件中出现多次，所有匹配都会被替换
+- 默认只替换第一个匹配项（安全模式）
+- 如需替换所有匹配，请设置 replace_all=true
 - 如果不确定文件内容，先使用 file_read 查看"""
 
     async def execute(
@@ -253,6 +258,7 @@ class FileEditTool(BaseTool):
         file_path: str,
         old_string: str,
         new_string: str,
+        replace_all: bool = False,
         **kwargs: Any
     ) -> ToolResult:
         """执行文件编辑."""
@@ -275,19 +281,42 @@ class FileEditTool(BaseTool):
                     file_path=str(path),
                 )
 
-            # 替换内容
-            new_content = content.replace(old_string, new_string)
+            # 统计匹配次数
+            match_count = content.count(old_string)
+
+            # 根据replace_all参数决定替换策略
+            if replace_all:
+                # 替换所有匹配
+                new_content = content.replace(old_string, new_string)
+                replacements = match_count
+                warning_msg = None
+            else:
+                # 只替换第一个匹配
+                new_content = content.replace(old_string, new_string, 1)
+                replacements = 1
+
+                # 如果有多处匹配，给出警告
+                if match_count > 1:
+                    warning_msg = (
+                        f"⚠️ 警告：文件中有 {match_count} 处匹配，"
+                        f"仅替换了第1处。如需替换所有，请设置 replace_all=true。"
+                    )
+                else:
+                    warning_msg = None
 
             # 写入文件
             path.write_text(new_content, encoding="utf-8")
 
-            # 统计替换次数
-            count = content.count(old_string)
+            result_message = f"成功编辑文件，替换了 {replacements} 处内容"
+            if warning_msg:
+                result_message = f"{warning_msg}\n\n{result_message}"
 
             return ToolResult.ok(
-                f"成功编辑文件，替换了 {count} 处内容",
+                result_message,
                 file_path=str(path),
-                replacements=count,
+                replacements=replacements,
+                total_matches=match_count,
+                replace_all=replace_all,
                 original_size=len(content),
                 new_size=len(new_content),
             )
