@@ -1,6 +1,7 @@
 """搜索工具（glob和grep）."""
 
 import fnmatch
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,8 @@ class GlobParams(ToolParameters):
 
     pattern: str = Field(..., description="glob匹配模式，如 '*.py' 或 '**/*.js'")
     path: str = Field(default=".", description="搜索目录")
+    max_depth: int = Field(default=5, description="最大搜索深度（递归搜索时有效）")
+    max_results: int = Field(default=100, description="最大结果数量")
 
     @field_validator("pattern")
     @classmethod
@@ -21,6 +24,26 @@ class GlobParams(ToolParameters):
         if not v or not v.strip():
             raise ValueError("pattern不能为空")
         return v.strip()
+
+    @field_validator("max_depth")
+    @classmethod
+    def validate_max_depth(cls, v: int) -> int:
+        """验证max_depth."""
+        if v < 1:
+            raise ValueError("max_depth必须 >= 1")
+        if v > 10:
+            raise ValueError("max_depth最大为 10")
+        return v
+
+    @field_validator("max_results")
+    @classmethod
+    def validate_max_results(cls, v: int) -> int:
+        """验证max_results."""
+        if v < 1:
+            raise ValueError("max_results必须 >= 1")
+        if v > 500:
+            raise ValueError("max_results最大为 500")
+        return v
 
 
 class GrepParams(ToolParameters):
@@ -32,6 +55,7 @@ class GrepParams(ToolParameters):
     output_mode: str = Field(default="content", description="输出模式: content/files/count")
     context: int = Field(default=2, description="匹配前后显示的行数")
     max_results: int = Field(default=50, description="最大结果数")
+    max_depth: int = Field(default=5, description="最大搜索深度")
 
     @field_validator("pattern")
     @classmethod
@@ -75,7 +99,10 @@ class GlobTool(BaseTool):
 示例：
 - '*.py' 所有Python文件
 - '**/*.js' 所有子目录中的JS文件
-- 'src/**/test_*.py' src目录下所有test_开头的py文件"""
+- 'src/**/test_*.py' src目录下所有test_开头的py文件
+参数：
+- max_depth: 最大搜索深度（默认5，最大10）
+- max_results: 最大结果数（默认100，最大500）"""
 
     IGNORE_DIRS = {
         ".git", "__pycache__", ".pytest_cache", "node_modules",
@@ -87,6 +114,8 @@ class GlobTool(BaseTool):
         self,
         pattern: str,
         path: str = ".",
+        max_depth: int = 5,
+        max_results: int = 100,
         **kwargs: Any
     ) -> ToolResult:
         """执行glob搜索."""
@@ -100,8 +129,11 @@ class GlobTool(BaseTool):
                 return ToolResult.error(f"路径不是目录: {path}")
 
             # 执行搜索
-            matches = list(self._glob_search(base_path, pattern))
+            matches = list(self._glob_search(base_path, pattern, max_depth, max_results))
             matches.sort()
+
+            # 检查结果是否被截断
+            truncated = len(matches) >= max_results
 
             if not matches:
                 return ToolResult.ok(
@@ -114,6 +146,8 @@ class GlobTool(BaseTool):
 
             # 格式化结果
             result_lines = [f"找到 {len(matches)} 个匹配文件:"]
+            if truncated:
+                result_lines.append(f"(结果已截断，仅显示前 {max_results} 个)")
             result_lines.extend(str(m.relative_to(base_path)) for m in matches)
 
             return ToolResult.ok(
@@ -122,25 +156,65 @@ class GlobTool(BaseTool):
                 path=str(base_path),
                 matches=[str(m) for m in matches],
                 count=len(matches),
+                truncated=truncated,
+                max_depth=max_depth,
             )
 
         except Exception as e:
             return ToolResult.error(f"搜索失败: {e}", pattern=pattern)
 
-    def _glob_search(self, base_path: Path, pattern: str) -> Any:
-        """递归搜索匹配的文件."""
-        # 使用pathlib的rglob或glob
+    def _glob_search(
+        self,
+        base_path: Path,
+        pattern: str,
+        max_depth: int,
+        max_results: int
+    ) -> Any:
+        """递归搜索匹配的文件 - 使用优化的遍历策略."""
+        result_count = 0
+        
         if pattern.startswith("**/"):
-            # 递归搜索
+            # 递归搜索 - 使用 os.walk 更高效
             remaining = pattern[3:]  # 去掉 '**/'
-            for path in base_path.rglob(remaining):
-                if self._should_include(path):
-                    yield path
+            current_depth = 0
+            
+            for root, dirs, files in os.walk(base_path):
+                # 检查深度限制
+                if current_depth >= max_depth:
+                    # 不再深入子目录
+                    dirs.clear()
+                    continue
+                
+                # 过滤掉忽略的目录
+                dirs[:] = [
+                    d for d in dirs
+                    if d not in self.IGNORE_DIRS and not d.startswith(".")
+                ]
+                
+                # 检查当前目录下的文件
+                for filename in files:
+                    if result_count >= max_results:
+                        return
+                    
+                    if filename.startswith("."):
+                        continue
+                    
+                    # 使用 fnmatch 匹配模式
+                    if fnmatch.fnmatch(filename, remaining):
+                        file_path = Path(root) / filename
+                        if file_path.exists():
+                            yield file_path
+                            result_count += 1
+                
+                current_depth += 1
         else:
-            # 单层搜索
+            # 单层搜索 - 使用 glob
             for path in base_path.glob(pattern):
+                if result_count >= max_results:
+                    return
                 if self._should_include(path):
                     yield path
+                    result_count += 1
 
     def _should_include(self, path: Path) -> bool:
         """检查路径是否应该包含在结果中."""
@@ -171,10 +245,12 @@ class GrepTool(BaseTool):
 - 文件类型过滤（glob模式）
 - 显示匹配行及其上下文
 - 限制结果数量避免token溢出
+- 控制搜索深度避免性能问题
 注意：
 - 默认显示匹配行及其前后2行
 - 二进制文件会被跳过
-- 默认最大返回50条结果"""
+- 默认最大返回50条结果
+- 默认最大搜索深度5层"""
 
     IGNORE_DIRS = {
         ".git", "__pycache__", ".pytest_cache", "node_modules",
@@ -200,6 +276,7 @@ class GrepTool(BaseTool):
         output_mode: str = "content",
         context: int = 2,
         max_results: int = 50,
+        max_depth: int = 5,
         **kwargs: Any
     ) -> ToolResult:
         """执行grep搜索."""
@@ -227,7 +304,7 @@ class GrepTool(BaseTool):
             else:
                 # 搜索目录
                 results = self._search_directory(
-                    base_path, regex, glob, context, max_results
+                    base_path, regex, glob, context, max_results, max_depth
                 )
 
             if not results:
@@ -269,12 +346,13 @@ class GrepTool(BaseTool):
         regex: re.Pattern,
         glob_pattern: str | None,
         context: int,
-        max_results: int
+        max_results: int,
+        max_depth: int = 5
     ) -> list[tuple[Path, list[dict]]]:
         """搜索目录中的所有文件."""
         results = []
 
-        for file_path in self._iter_files(base_path, glob_pattern):
+        for file_path in self._iter_files(base_path, glob_pattern, max_depth):
             if len(results) >= max_results:
                 break
 
@@ -286,29 +364,46 @@ class GrepTool(BaseTool):
 
         return results
 
-    def _iter_files(self, base_path: Path, glob_pattern: str | None) -> Any:
-        """遍历目录中的文件."""
-        for path in base_path.rglob("*"):
-            if not path.is_file():
+    def _iter_files(
+        self,
+        base_path: Path,
+        glob_pattern: str | None,
+        max_depth: int = 5
+    ) -> Any:
+        """遍历目录中的文件 - 使用优化的 os.walk."""
+        current_depth = 0
+        
+        for root, dirs, files in os.walk(base_path):
+            # 检查深度限制
+            if current_depth >= max_depth:
+                dirs.clear()
                 continue
-
-            # 跳过忽略目录
-            if any(p in self.IGNORE_DIRS for p in path.parts):
-                continue
-
-            # 跳过二进制文件
-            if path.suffix.lower() in self.BINARY_EXTENSIONS:
-                continue
-
-            # 跳过隐藏文件
-            if any(p.startswith(".") for p in path.parts if p not in (".", "..")):
-                continue
-
-            # 应用glob过滤
-            if glob_pattern and not fnmatch.fnmatch(path.name, glob_pattern):
-                continue
-
-            yield path
+            
+            # 过滤掉忽略的目录和隐藏目录
+            dirs[:] = [
+                d for d in dirs
+                if d not in self.IGNORE_DIRS and not d.startswith(".")
+            ]
+            
+            # 处理文件
+            for filename in files:
+                # 跳过隐藏文件
+                if filename.startswith("."):
+                    continue
+                
+                file_path = Path(root) / filename
+                
+                # 跳过二进制文件
+                if file_path.suffix.lower() in self.BINARY_EXTENSIONS:
+                    continue
+                
+                # 应用glob过滤
+                if glob_pattern and not fnmatch.fnmatch(filename, glob_pattern):
+                    continue
+                
+                yield file_path
+            
+            current_depth += 1
 
     def _search_file(
         self,
