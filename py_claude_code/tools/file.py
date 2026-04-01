@@ -14,6 +14,10 @@ class FileReadParams(ToolParameters):
     offset: int = Field(default=1, description="起始行号（从1开始）")
     limit: int | None = Field(default=None, description="读取行数限制，None表示读取全部")
 
+    # 大文件保护阈值
+    MAX_FILE_SIZE_MB: int = 50  # 50MB
+    SAFE_READ_LIMIT: int = 5000  # 安全读取行数限制
+
     @field_validator("file_path")
     @classmethod
     def validate_path(cls, v: str) -> str:
@@ -88,7 +92,9 @@ class FileReadTool(BaseTool):
 注意：
 - 对于大文件，建议指定 offset 和 limit 分批读取
 - 文件路径可以是相对路径或绝对路径
-- 如果不指定 limit，将读取整个文件（可能占用大量token）"""
+- 如果不指定 limit，将读取整个文件（可能占用大量token）
+- 超过50MB的文件会被拒绝读取，需要分批处理
+- 超过1MB的文件会自动限制读取前5000行"""
 
     async def execute(
         self,
@@ -107,33 +113,67 @@ class FileReadTool(BaseTool):
             if not path.is_file():
                 return ToolResult.error(f"路径不是文件: {file_path}")
 
-            # 读取文件内容
-            content = path.read_text(encoding="utf-8")
-            lines = content.split("\n")
+            # 大文件保护检查
+            file_size = path.stat().st_size
+            max_size = FileReadParams.MAX_FILE_SIZE_MB * 1024 * 1024
 
-            # 应用offset和limit
-            start_idx = offset - 1  # 转换为0-based索引
-            if start_idx >= len(lines):
-                return ToolResult.error(f"offset {offset} 超出文件行数范围")
+            if file_size > max_size:
+                return ToolResult.error(
+                    f"文件过大 ({file_size / 1024 / 1024:.1f}MB)，超过安全限制 "
+                    f"({FileReadParams.MAX_FILE_SIZE_MB}MB)。"
+                    f"建议使用 offset 和 limit 参数分批读取。",
+                    file_path=str(path),
+                    file_size_bytes=file_size,
+                )
 
-            end_idx = len(lines) if limit is None else min(start_idx + limit, len(lines))
-            selected_lines = lines[start_idx:end_idx]
+            # 如果没有指定limit，使用安全限制
+            effective_limit = limit
+            if effective_limit is None and file_size > 1024 * 1024:  # >1MB的文件
+                effective_limit = FileReadParams.SAFE_READ_LIMIT
+                warning_msg = f"⚠️ 文件较大，自动限制读取前 {effective_limit} 行。"
+            else:
+                warning_msg = None
+
+            # 使用逐行读取避免内存问题
+            lines: list[str] = []
+            total_lines = 0
+
+            with open(path, "r", encoding="utf-8") as f:
+                # 跳过前 offset-1 行
+                for _ in range(offset - 1):
+                    try:
+                        next(f)
+                        total_lines += 1
+                    except StopIteration:
+                        return ToolResult.error(f"offset {offset} 超出文件行数范围")
+
+                # 读取指定行数
+                remaining = effective_limit if effective_limit else None
+                for line in f:
+                    total_lines += 1
+                    if remaining is not None and len(lines) >= remaining:
+                        # 继续计数但不读取
+                        continue
+                    # 去掉行尾换行符
+                    lines.append(line.rstrip('\n\r'))
 
             # 添加行号
             numbered_lines = []
-            for i, line in enumerate(selected_lines, start=offset):
+            for i, line in enumerate(lines, start=offset):
                 numbered_lines.append(f"{i:4d} | {line}")
 
             result_content = "\n".join(numbered_lines)
-            total_lines = len(lines)
+            if warning_msg:
+                result_content = f"{warning_msg}\n\n{result_content}"
 
             return ToolResult.ok(
                 result_content,
                 file_path=str(path),
                 total_lines=total_lines,
-                shown_lines=len(selected_lines),
+                shown_lines=len(lines),
                 start_line=offset,
-                end_line=end_idx,
+                end_line=offset + len(lines) - 1,
+                truncated=(effective_limit is not None and total_lines > len(lines)),
             )
 
         except UnicodeDecodeError:
