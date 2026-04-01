@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-04-02 00:33:00",
+  "sessions": {
+    "claude": {
+      "alive": true,
+      "output": "# 交互式模式\npython -m py_claude_code\n\n# 单次查询\npython -m py_claude_code \"解释Python装饰器\"\n\n# 查看帮助\npython -m py_claude_code --help\n```\n\n## 代码示例\n\n```python\nimport asyncio\nfrom py_claude_code import ChatSession, load_config\n\nasync def main():\n    config = load_config()\n    session = ChatSession(config)\n\n    # 使用工具自动完成\n    response = await session.send_message(\n        \"请查看当前目录结构并统计Python文件数量\",\n        use_tools=True\n    )\n    print(response)\n\nasyncio.run(main())\n```\n(base) fmy@192 py-claude-code %"
+    },
+    "gemini": {
+      "alive": true,
+      "output": "  mode, use the --prompt (-p) flag.\n▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n > 请审查以下Python代码，检查代码质量、最佳实践、类型注解、错误处理、安全性和可\n   改进之处：\n\n   文件1:\n   /Users/fmy/.openclaw/workspace/code/py-claude-code/py_claude_code/config.py\n   文件2:\n   /Users/fmy/.openclaw/workspace/code/py-claude-code/py_claude_code/tools/base\n   .py\n   文件3:\n   /Users/fmy/.openclaw/workspace/code/py-claude-code/py_claude_code/tools/file\n   .py\n\n   请提供详细的审查报告，包括：\n   1. 每个文件的评分（1-10）\n   2. 主要优点\n   3. 发现的问题和建议\n   4. 安全性评估\n▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄\n\nℹ Request cancelled.\n                                                                ? for shortcuts\n────────────────────────────────────────────────────────────────────────────────\n Shift+Tab to accept edits\n▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n >   Type your message or @path/to/file\n▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄\n workspace (/directory)           sandbox                                /model\n ~/.../code/py-claude-code        no sandbox       gemini-2.5-pro-preview-03-25"
+    }
+  }
+}

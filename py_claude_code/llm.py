@@ -211,6 +211,7 @@ class OpenAIClient:
         messages: list[Message],
         max_iterations: int = 10,
         tool_callback: callable | None = None,
+        summarize_callback: callable[[str], str] | None = None,
     ) -> LLMResponse:
         """
         支持工具调用的对话.
@@ -262,12 +263,18 @@ class OpenAIClient:
 
                     result: ToolResult = await tool.execute(**tool_call.arguments)
 
-                    # 回调通知
+                    # 回调通知（使用原始结果）
                     if tool_callback:
                         tool_callback(tool_call.name, result)
 
-                    # 添加工具结果消息
+                    # 处理工具结果内容
                     content = result.content if result.success else f"错误: {result.error}"
+
+                    # 应用摘要（如果启用且内容过长）
+                    if summarize_callback and len(content) > 1000:
+                        content = summarize_callback(content)
+
+                    # 添加工具结果消息
                     current_messages.append(Message.tool(
                         content=content,
                         tool_call_id=tool_call.id,

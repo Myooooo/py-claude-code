@@ -37,7 +37,23 @@ class Config(BaseSettings):
     )
     max_context_messages: int = Field(
         default=50,
-        description="最大上下文消息数"
+        description="最大上下文消息数（已废弃，使用max_context_tokens）"
+    )
+    max_context_tokens: int = Field(
+        default=100000,
+        description="最大上下文token数"
+    )
+    enable_tool_summarization: bool = Field(
+        default=True,
+        description="是否启用工具结果自动摘要"
+    )
+    enable_session_persistence: bool = Field(
+        default=True,
+        description="是否启用会话持久化存储"
+    )
+    session_db_path: str = Field(
+        default=".claude_sessions.db",
+        description="会话数据库存储路径"
     )
     max_tool_iterations: int = Field(
         default=10,

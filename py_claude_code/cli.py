@@ -211,6 +211,51 @@ async def handle_command(
                     preview = content[:100] + "..." if len(content) > 100 else content
                     rprint(f"[dim]{role}:[/dim] {preview}")
 
+    elif cmd == "/checkpoint":
+        name = session.create_checkpoint()
+        ui.print_success(f"已创建检查点: {name}")
+
+    elif cmd == "/undo":
+        if session.undo():
+            ui.print_success("已回滚到上一检查点")
+        else:
+            ui.print_warning("没有可回滚的检查点")
+
+    elif cmd == "/redo":
+        if session.redo():
+            ui.print_success("已恢复检查点")
+        else:
+            ui.print_warning("没有可恢复的检查点")
+
+    elif cmd == "/save":
+        session.save()
+        ui.print_success("会话已保存")
+
+    elif cmd == "/load":
+        if session.load():
+            ui.print_success("会话已加载")
+        else:
+            ui.print_warning("没有找到保存的会话")
+
+    elif cmd == "/tokens":
+        metrics = session.get_token_metrics()
+        if metrics:
+            rprint(f"[cyan]Token使用统计:[/cyan]")
+            rprint(f"  总Token数: {metrics.total_tokens}")
+            rprint(f"  消息数量: {metrics.message_count}")
+        else:
+            ui.print_info("暂无Token统计")
+
+    elif cmd == "/sessions":
+        sessions = chat_manager.list_sessions()
+        if sessions:
+            rprint(f"[cyan]所有会话:[/cyan]")
+            for sid in sessions[:10]:  # 只显示前10个
+                current = " [当前]" if sid == chat_manager.current_session_id else ""
+                rprint(f"  - {sid}{current}")
+        else:
+            ui.print_info("暂无会话")
+
     else:
         ui.print_warning(f"未知命令: {command}")
         rprint("[dim]输入 /help 查看可用命令[/dim]")

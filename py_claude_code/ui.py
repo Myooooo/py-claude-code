@@ -283,6 +283,14 @@ class UI:
 - `/exit` 或 `/quit` - 退出程序
 - `/tools` - 查看所有可用工具
 - `/model` - 查看当前使用的模型
+- `/tokens` - 查看Token使用统计
+- `/sessions` - 列出所有会话
+- `/checkpoint` - 创建检查点
+- `/undo` - 回滚到上一检查点
+- `/redo` - 恢复检查点
+- `/save` - 手动保存会话
+- `/load` - 加载会话
+- `/history` - 查看对话历史
 
 ## 可用工具
 助手可以自动调用以下工具：
