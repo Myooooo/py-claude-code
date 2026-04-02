@@ -1,7 +1,7 @@
 """OpenAI API客户端."""
 
 import json
-from typing import Any, AsyncIterator, Literal
+from typing import Any, AsyncIterator, Callable, Literal, Optional
 from dataclasses import dataclass, field
 
 import httpx
@@ -292,8 +292,8 @@ class OpenAIClient:
         self,
         messages: list[Message],
         max_iterations: int = 10,
-        tool_callback: callable | None = None,
-        summarize_callback: callable[[str], str] | None = None,
+        tool_callback: Optional[Callable] = None,
+        summarize_callback: Optional[Callable[[str], str]] = None,
     ) -> LLMResponse:
         """
         支持工具调用的对话.
