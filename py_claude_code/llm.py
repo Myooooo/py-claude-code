@@ -15,6 +15,7 @@ from openai.types.chat.chat_completion_message_tool_call import (
 
 from .config import Config
 from .tools.base import tool_registry
+from .cost_tracker import get_cost_tracker, CostRecord, CostTracker
 
 
 @dataclass
@@ -93,24 +94,94 @@ class LLMResponse:
     finish_reason: str | None = None
     usage: dict[str, int] | None = None
     raw_response: Any | None = None
+    cost_record: CostRecord | None = None
 
     @property
     def has_tool_calls(self) -> bool:
         """是否有工具调用."""
         return len(self.tool_calls) > 0
 
+    @property
+    def total_cost(self) -> float:
+        """获取总成本."""
+        return self.cost_record.total_cost if self.cost_record else 0.0
+
+    @property
+    def total_tokens(self) -> int:
+        """获取总token数."""
+        return self.usage.get("total_tokens", 0) if self.usage else 0
+
 
 class OpenAIClient:
     """OpenAI API客户端."""
 
-    def __init__(self, config: Config | None = None):
-        """初始化客户端."""
+    def __init__(
+        self,
+        config: Config | None = None,
+        session_id: str | None = None,
+        enable_cost_tracking: bool = True,
+    ):
+        """初始化客户端.
+
+        Args:
+            config: 配置对象
+            session_id: 会话ID (用于成本追踪)
+            enable_cost_tracking: 是否启用成本追踪
+        """
         self.config = config or Config()
+        self.session_id = session_id
+        self.enable_cost_tracking = enable_cost_tracking
         self.client = AsyncOpenAI(
             api_key=self.config.api_key,
             base_url=self.config.base_url,
             timeout=httpx.Timeout(120.0, connect=10.0),
         )
+        self._last_cost_record: CostRecord | None = None
+        self._session_cost: float = 0.0
+        self._cost_tracker = get_cost_tracker() if enable_cost_tracking else None
+
+    @property
+    def last_cost(self) -> float:
+        """获取最后一次请求的成本."""
+        return self._last_cost_record.total_cost if self._last_cost_record else 0.0
+
+    @property
+    def session_cost(self) -> float:
+        """获取会话总成本."""
+        return self._session_cost
+
+    def get_session_cost_summary(self) -> dict[str, Any]:
+        """获取会话成本摘要."""
+        if self._cost_tracker and self.session_id:
+            from .cost_tracker import CostSummary
+            summary = self._cost_tracker.get_session_costs(self.session_id)
+            return summary.to_dict()
+        return {
+            "total_cost": self._session_cost,
+            "last_request_cost": self.last_cost,
+        }
+
+    def _record_cost(
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        request_type: str = "chat",
+    ) -> CostRecord | None:
+        """记录成本."""
+        if not self._cost_tracker:
+            return None
+
+        record = self._cost_tracker.record_cost(
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            session_id=self.session_id,
+            request_type=request_type,
+        )
+        self._last_cost_record = record
+        self._session_cost += record.total_cost
+        return record
 
     async def chat(
         self,
@@ -173,6 +244,7 @@ class OpenAIClient:
 
             # 提取使用量
             usage = None
+            cost_record = None
             if response.usage:
                 usage = {
                     "prompt_tokens": response.usage.prompt_tokens,
@@ -180,12 +252,22 @@ class OpenAIClient:
                     "total_tokens": response.usage.total_tokens,
                 }
 
+                # 记录成本
+                if self.enable_cost_tracking:
+                    cost_record = self._record_cost(
+                        model=params.get("model", self.config.model),
+                        input_tokens=response.usage.prompt_tokens,
+                        output_tokens=response.usage.completion_tokens,
+                        request_type="chat",
+                    )
+
             return LLMResponse(
                 content=message.content,
                 tool_calls=tool_calls,
                 finish_reason=choice.finish_reason,
                 usage=usage,
                 raw_response=response,
+                cost_record=cost_record,
             )
 
         except Exception as e:
@@ -227,6 +309,10 @@ class OpenAIClient:
         tools = tool_registry.get_openai_functions()
         current_messages = messages.copy()
         iterations = 0
+        total_cost = 0.0
+        total_input_tokens = 0
+        total_output_tokens = 0
+        last_response: LLMResponse | None = None
 
         while iterations < max_iterations:
             # 发送请求
@@ -235,9 +321,28 @@ class OpenAIClient:
             if isinstance(response, AsyncIterator):
                 raise ValueError("流式输出不支持工具调用")
 
+            last_response = response
+
+            # 累加成本
+            if response.cost_record:
+                total_cost += response.cost_record.total_cost
+                total_input_tokens += response.cost_record.input_tokens
+                total_output_tokens += response.cost_record.output_tokens
+
             # 如果没有工具调用，直接返回
             if not response.has_tool_calls:
-                return response
+                # 更新最终响应的成本信息
+                if last_response:
+                    last_response.cost_record = CostRecord(
+                        model=self.config.model,
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        total_tokens=total_input_tokens + total_output_tokens,
+                        total_cost=total_cost,
+                        session_id=self.session_id,
+                        request_type="chat_with_tools",
+                    )
+                return last_response
 
             # 添加助手消息
             assistant_msg = Message.assistant()
@@ -289,10 +394,21 @@ class OpenAIClient:
             iterations += 1
 
         # 达到最大迭代次数
-        return LLMResponse(
+        final_response = LLMResponse(
             content="（达到最大工具调用次数限制）",
             finish_reason="max_iterations",
         )
+        if last_response and last_response.cost_record:
+            final_response.cost_record = CostRecord(
+                model=self.config.model,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
+                total_tokens=total_input_tokens + total_output_tokens,
+                total_cost=total_cost,
+                session_id=self.session_id,
+                request_type="chat_with_tools",
+            )
+        return final_response
 
     async def simple_chat(
         self,

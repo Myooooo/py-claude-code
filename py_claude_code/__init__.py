@@ -8,6 +8,7 @@
 - 会话持久化存储
 - 检查点系统
 - 长期记忆
+- 成本追踪和预算管理
 """
 
 __version__ = "0.2.0"
@@ -20,6 +21,7 @@ from .tools.base import BaseTool, ToolResult, tool_registry
 from .token_manager import TokenManager, TokenMetrics
 from .storage import SessionStorage
 from .memory import MemoryManager
+from .cost_tracker import CostTracker, CostRecord, CostSummary, BudgetConfig, get_cost_tracker, ModelPricing
 from .ui import UI, console
 
 __all__ = [
@@ -40,6 +42,12 @@ __all__ = [
     "TokenMetrics",
     "SessionStorage",
     "MemoryManager",
+    "CostTracker",
+    "CostRecord",
+    "CostSummary",
+    "BudgetConfig",
+    "get_cost_tracker",
+    "ModelPricing",
     "UI",
     "console",
 ]

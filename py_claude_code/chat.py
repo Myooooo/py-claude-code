@@ -1,6 +1,7 @@
 """对话管理模块 - 集成Token管理、持久化和记忆系统."""
 
 import json
+import uuid
 from typing import Any, AsyncIterator, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -11,6 +12,7 @@ from .tools.base import ToolResult
 from .token_manager import TokenManager, TokenMetrics
 from .storage import SessionStorage, SessionData
 from .memory import MemoryManager
+from .cost_tracker import CostTracker, CostSummary, get_cost_tracker
 
 
 @dataclass
@@ -95,11 +97,17 @@ class ChatSession:
         config: Optional[Config] = None,
         system_prompt: Optional[str] = None,
         storage: Optional[SessionStorage] = None,
+        enable_cost_tracking: bool = True,
     ):
         """初始化会话."""
         self.session_id = session_id or self._generate_session_id()
         self.config = config or Config()
-        self.client = OpenAIClient(self.config)
+        self.enable_cost_tracking = enable_cost_tracking
+        self.client = OpenAIClient(
+            self.config,
+            session_id=self.session_id,
+            enable_cost_tracking=enable_cost_tracking,
+        )
 
         # 初始化Token管理器
         self.token_manager = TokenManager(
@@ -126,6 +134,11 @@ class ChatSession:
 
         # 持久化存储
         self.storage = storage
+
+        # 成本追踪
+        self.cost_tracker: Optional[CostTracker] = None
+        if self.enable_cost_tracking:
+            self.cost_tracker = get_cost_tracker()
 
         # 记忆管理
         self.memory_manager: Optional[MemoryManager] = None
@@ -331,6 +344,7 @@ class ChatSession:
             return
 
         try:
+            cost_summary = self.get_cost_summary()
             self.storage.save_session(
                 self.session_id,
                 self.context.get_messages(),
@@ -338,6 +352,7 @@ class ChatSession:
                 metadata={
                     "token_metrics": self.context.get_token_metrics().__dict__ if self.context.get_token_metrics() else {},
                     "checkpoint_count": len(self.checkpoints),
+                    "cost_summary": cost_summary.to_dict(),
                 },
             )
         except Exception:
@@ -402,16 +417,44 @@ class ChatSession:
         """获取Token使用统计."""
         return self.context.get_token_metrics()
 
+    def get_cost_summary(self) -> CostSummary:
+        """获取会话成本汇总."""
+        if self.cost_tracker:
+            return self.cost_tracker.get_session_costs(self.session_id)
+        return CostSummary(period=f"session:{self.session_id}")
+
+    def get_last_request_cost(self) -> float:
+        """获取最后一次请求的成本."""
+        return self.client.last_cost
+
+    def get_session_cost(self) -> float:
+        """获取会话总成本."""
+        return self.client.session_cost
+
+    def check_budget_warnings(self) -> list[dict[str, Any]]:
+        """检查预算警告."""
+        if self.cost_tracker:
+            return self.cost_tracker.check_budget_warnings()
+        return []
+
 
 class ChatManager:
     """聊天管理器 - 支持持久化存储."""
 
-    def __init__(self, config: Optional[Config] = None):
+    def __init__(
+        self,
+        config: Optional[Config] = None,
+        enable_cost_tracking: bool = True,
+    ):
         """初始化管理器."""
         self.config = config or Config()
+        self.enable_cost_tracking = enable_cost_tracking
         self.sessions: dict[str, ChatSession] = {}
         self.current_session_id: Optional[str] = None
         self.storage = SessionStorage()
+        self.cost_tracker: Optional[CostTracker] = None
+        if enable_cost_tracking:
+            self.cost_tracker = get_cost_tracker()
 
     def create_session(
         self,
@@ -428,6 +471,7 @@ class ChatManager:
             config=self.config,
             system_prompt=system_prompt,
             storage=self.storage,
+            enable_cost_tracking=self.enable_cost_tracking,
         )
 
         # 尝试加载已有会话
@@ -498,3 +542,35 @@ class ChatManager:
         """发送消息（便捷方法）."""
         session = self.get_session(session_id)
         return await session.send_message(message, use_tools=use_tools)
+
+    def get_cost_summary(self, period: str = "all_time") -> dict[str, Any]:
+        """获取成本汇总.
+
+        Args:
+            period: 周期 (daily, weekly, monthly, all_time)
+        """
+        if not self.cost_tracker:
+            return {}
+
+        if period == "daily":
+            summary = self.cost_tracker.get_daily_summary()
+        elif period == "weekly":
+            summary = self.cost_tracker.get_weekly_summary()
+        elif period == "monthly":
+            summary = self.cost_tracker.get_monthly_summary()
+        else:
+            summary = self.cost_tracker.get_all_time_summary()
+
+        return summary.to_dict()
+
+    def check_budget_warnings(self) -> list[dict[str, Any]]:
+        """检查预算警告."""
+        if self.cost_tracker:
+            return self.cost_tracker.check_budget_warnings()
+        return []
+
+    def export_cost_report(self, format: str = "markdown", period: str = "monthly") -> str:
+        """导出成本报告."""
+        if self.cost_tracker:
+            return self.cost_tracker.export_report(format=format, period=period)
+        return ""

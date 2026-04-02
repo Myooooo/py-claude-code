@@ -4,7 +4,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich import print as rprint
@@ -15,6 +15,18 @@ from .config import Config, load_config
 from .chat import ChatManager, ChatSession
 from .tools.base import tool_registry
 from .ui import UI, console
+from .cost_tracker import get_cost_tracker, BudgetConfig
+
+# 全局聊天管理器 (支持成本追踪)
+chat_manager: ChatManager | None = None
+
+
+def get_chat_manager(config: Config | None = None) -> ChatManager:
+    """获取或创建聊天管理器."""
+    global chat_manager
+    if chat_manager is None:
+        chat_manager = ChatManager(config, enable_cost_tracking=True)
+    return chat_manager
 
 # 创建Typer应用
 app = typer.Typer(
@@ -102,12 +114,18 @@ async def run_single(
 ) -> None:
     """单次查询模式."""
     ui = UI(config)
+    manager = get_chat_manager(config)
 
     try:
-        session = ChatSession(config)
+        session = manager.get_session()
 
         with ui.status("思考中..."):
             response = await session.send_message(prompt, use_tools=use_tools)
+
+        # 显示成本信息
+        cost = session.get_last_request_cost()
+        if cost > 0:
+            ui.print_cost_info(cost, session.get_session_cost())
 
         if isinstance(response, str):
             ui.print_assistant_message(response)
@@ -130,7 +148,8 @@ async def run_interactive(
     ui.print_welcome()
 
     # 创建会话
-    session = ChatSession(config)
+    manager = get_chat_manager(config)
+    session = manager.get_session()
 
     while True:
         try:
@@ -246,12 +265,106 @@ async def handle_command(
         else:
             ui.print_info("暂无Token统计")
 
+        # 显示成本信息
+        cost_summary = session.get_cost_summary()
+        if cost_summary.total_cost > 0:
+            rprint(f"[cyan]成本统计:[/cyan]")
+            rprint(f"  本次会话成本: ${cost_summary.total_cost:.6f}")
+            rprint(f"  请求数: {cost_summary.total_requests}")
+            rprint(f"  Tokens: {cost_summary.total_tokens:,}")
+
+    elif cmd == "/cost":
+        cost_summary = session.get_cost_summary()
+        rprint(f"[cyan]会话成本:[/cyan]")
+        rprint(f"  总成本: ${cost_summary.total_cost:.6f}")
+        rprint(f"  请求数: {cost_summary.total_requests}")
+        rprint(f"  输入Tokens: {cost_summary.total_input_tokens:,}")
+        rprint(f"  输出Tokens: {cost_summary.total_output_tokens:,}")
+        rprint(f"  总Tokens: {cost_summary.total_tokens:,}")
+
+        if cost_summary.model_breakdown:
+            rprint(f"[cyan]模型细分:[/cyan]")
+            for model, data in cost_summary.model_breakdown.items():
+                rprint(f"  {model}: ${data['cost']:.6f} ({data['requests']} 次请求)")
+
+        # 检查预算警告
+        warnings = session.check_budget_warnings()
+        if warnings:
+            rprint(f"[yellow]预算警告:[/yellow]")
+            for warning in warnings:
+                icon = "🚨" if warning["level"] == "critical" else "⚠️"
+                rprint(f"  {icon} {warning['message']}")
+
+    elif cmd == "/cost-daily":
+        manager = get_chat_manager()
+        summary = manager.get_cost_summary("daily")
+        if summary:
+            rprint(f"[cyan]今日成本:[/cyan]")
+            rprint(f"  总成本: ${summary['total_cost']:.6f}")
+            rprint(f"  请求数: {summary['total_requests']}")
+            rprint(f"  总Tokens: {summary['total_tokens']:,}")
+        else:
+            ui.print_info("暂无成本数据")
+
+    elif cmd == "/cost-weekly":
+        manager = get_chat_manager()
+        summary = manager.get_cost_summary("weekly")
+        if summary:
+            rprint(f"[cyan]本周成本:[/cyan]")
+            rprint(f"  总成本: ${summary['total_cost']:.6f}")
+            rprint(f"  请求数: {summary['total_requests']}")
+            rprint(f"  总Tokens: {summary['total_tokens']:,}")
+        else:
+            ui.print_info("暂无成本数据")
+
+    elif cmd == "/cost-monthly":
+        manager = get_chat_manager()
+        summary = manager.get_cost_summary("monthly")
+        if summary:
+            rprint(f"[cyan]本月成本:[/cyan]")
+            rprint(f"  总成本: ${summary['total_cost']:.6f}")
+            rprint(f"  请求数: {summary['total_requests']}")
+            rprint(f"  总Tokens: {summary['total_tokens']:,}")
+        else:
+            ui.print_info("暂无成本数据")
+
+    elif cmd == "/budget":
+        cost_tracker = get_cost_tracker()
+        budget = cost_tracker.get_budget_config()
+        rprint(f"[cyan]预算配置:[/cyan]")
+        rprint(f"  日预算: ${budget.daily_budget:.2f}")
+        rprint(f"  周预算: ${budget.weekly_budget:.2f}")
+        rprint(f"  月预算: ${budget.monthly_budget:.2f}")
+        rprint(f"  警告阈值: {budget.warning_threshold * 100:.0f}%")
+
+        # 显示当前使用情况
+        daily = cost_tracker.get_daily_summary()
+        weekly = cost_tracker.get_weekly_summary()
+        monthly = cost_tracker.get_monthly_summary()
+
+        rprint(f"[cyan]当前使用:[/cyan]")
+        if budget.daily_budget > 0:
+            daily_pct = (daily.total_cost / budget.daily_budget * 100)
+            rprint(f"  今日: ${daily.total_cost:.4f} / ${budget.daily_budget:.2f} ({daily_pct:.1f}%)")
+        if budget.weekly_budget > 0:
+            weekly_pct = (weekly.total_cost / budget.weekly_budget * 100)
+            rprint(f"  本周: ${weekly.total_cost:.4f} / ${budget.weekly_budget:.2f} ({weekly_pct:.1f}%)")
+        if budget.monthly_budget > 0:
+            monthly_pct = (monthly.total_cost / budget.monthly_budget * 100)
+            rprint(f"  本月: ${monthly.total_cost:.4f} / ${budget.monthly_budget:.2f} ({monthly_pct:.1f}%)")
+
+    elif cmd == "/cost-report":
+        manager = get_chat_manager()
+        report = manager.export_cost_report(format="markdown", period="monthly")
+        rprint(report)
+
     elif cmd == "/sessions":
-        sessions = chat_manager.list_sessions()
+        manager = get_chat_manager()
+        sessions = manager.list_sessions()
         if sessions:
             rprint(f"[cyan]所有会话:[/cyan]")
             for sid in sessions[:10]:  # 只显示前10个
-                current = " [当前]" if sid == chat_manager.current_session_id else ""
+                current = " [当前]" if sid == manager.current_session_id else ""
                 rprint(f"  - {sid}{current}")
         else:
             ui.print_info("暂无会话")
@@ -296,6 +409,20 @@ async def handle_chat(
                 ui.print_tool_result(tool_name, success)
             # 清空本次的工具历史
             session.tool_history.clear()
+
+        # 显示成本信息
+        last_cost = session.get_last_request_cost()
+        session_cost = session.get_session_cost()
+        if last_cost > 0:
+            ui.print_cost_info(last_cost, session_cost)
+
+        # 检查预算警告
+        warnings = session.check_budget_warnings()
+        for warning in warnings:
+            if warning["level"] == "critical":
+                ui.print_budget_warning(warning["message"], critical=True)
+            elif warning["level"] == "warning":
+                ui.print_budget_warning(warning["message"], critical=False)
 
         ui.print_assistant_message(response)
 

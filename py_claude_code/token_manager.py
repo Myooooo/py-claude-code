@@ -45,15 +45,9 @@ class TokenManager:
             return
 
         try:
-            if "gpt-4" in self.model or "gpt-3.5" in self.model:
-                self._encoding = tiktoken.get_encoding("cl100k_base")
-            else:
-                self._encoding = tiktoken.get_encoding("cl100k_base")
+            self._encoding = tiktoken.get_encoding("cl100k_base")
         except Exception:
-            try:
-                self._encoding = tiktoken.get_encoding("cl100k_base")
-            except Exception:
-                self._encoding = None
+            self._encoding = None
 
     def count_tokens(self, text: str) -> int:
         """计算文本的token数."""
@@ -130,15 +124,19 @@ class TokenManager:
     def _create_summary(self, messages: list[Message]) -> str:
         """创建消息摘要."""
         parts = []
-        for msg in messages:
+        # 按角色分组，每类最多保留3条重要消息
+        user_msgs = [m for m in messages if m.role == "user"][:3]
+        assistant_msgs = [m for m in messages if m.role == "assistant" and not m.tool_calls][:3]
+
+        for msg in user_msgs + assistant_msgs:
             if msg.role == "user":
                 content = (msg.content or "")[:100]
                 parts.append(f"用户: {content}...")
-            elif msg.role == "assistant" and not msg.tool_calls:
+            elif msg.role == "assistant":
                 content = (msg.content or "")[:100]
                 parts.append(f"助手: {content}...")
 
-        return " | ".join(parts[:3])
+        return " | ".join(parts)
 
     def summarize_tool_result(self, content: str, max_tokens: int = 500) -> str:
         """摘要工具结果（如果过长）."""

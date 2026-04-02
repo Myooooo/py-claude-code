@@ -55,11 +55,14 @@ class UI:
   [cyan]/reset[/cyan]    重置会话
   [cyan]/exit[/cyan]     退出程序
   [cyan]/tools[/cyan]    查看可用工具
+  [cyan]/cost[/cyan]     查看成本统计
+  [cyan]/budget[/cyan]   查看预算
 
 [bold]提示:[/bold]
   • 直接输入问题开始对话
   • 支持多轮对话和工具调用
   • 使用 [cyan]Ctrl+C[/cyan] 取消当前操作
+  • 成本追踪已启用，每次请求后显示费用
         """
         self.console.print(Markdown(help_text))
         self.console.print()
@@ -118,6 +121,21 @@ class UI:
             self.console.print(f"  [dim green]✓ {tool_name} 完成[/dim green]")
         else:
             self.console.print(f"  [dim red]✗ {tool_name} 失败[/dim red]")
+
+    def print_cost_info(self, last_cost: float, session_cost: float) -> None:
+        """打印成本信息."""
+        if last_cost < 0.0001:
+            cost_text = f"本次: < $0.0001 | 会话: ${session_cost:.4f}"
+        else:
+            cost_text = f"本次: ${last_cost:.4f} | 会话: ${session_cost:.4f}"
+        self.console.print(f"  [dim blue]💰 {cost_text}[/dim blue]")
+
+    def print_budget_warning(self, message: str, critical: bool = False) -> None:
+        """打印预算警告."""
+        if critical:
+            self.console.print(f"  [bold red]🚨 {message}[/bold red]")
+        else:
+            self.console.print(f"  [bold yellow]⚠️ {message}[/bold yellow]")
 
     def print_code(
         self,
@@ -283,7 +301,13 @@ class UI:
 - `/exit` 或 `/quit` - 退出程序
 - `/tools` - 查看所有可用工具
 - `/model` - 查看当前使用的模型
-- `/tokens` - 查看Token使用统计
+- `/tokens` - 查看Token和成本使用统计
+- `/cost` - 查看当前会话成本详情
+- `/cost-daily` - 查看今日成本汇总
+- `/cost-weekly` - 查看本周成本汇总
+- `/cost-monthly` - 查看本月成本汇总
+- `/budget` - 查看预算配置和使用情况
+- `/cost-report` - 导出成本报告
 - `/sessions` - 列出所有会话
 - `/checkpoint` - 创建检查点
 - `/undo` - 回滚到上一检查点

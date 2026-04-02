@@ -1,9 +1,11 @@
-"""长期记忆系统."""
+"""记忆管理模块 - 长期记忆存储和召回."""
 
+import json
+import sqlite3
 import re
-from typing import Any, Optional
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Any, Optional
 
 from .storage import SessionStorage
 
@@ -12,292 +14,341 @@ from .storage import SessionStorage
 class Memory:
     """记忆条目."""
 
+    id: Optional[int]
+    session_id: str
+    category: str  # fact, preference, decision, code
     content: str
-    importance: int = 1
-    category: str = "general"
-    timestamp: str = ""
-
-
-class MemoryExtractor:
-    """记忆提取器 - 从对话中提取重要信息."""
-
-    # 需要记忆的实体类型
-    ENTITY_PATTERNS = {
-        "file": r"([\w\-/.]+\.(py|js|ts|json|md|txt|yaml|yml))",
-        "url": r"(https?://[^\s]+)",
-        "email": r"([\w.-]+@[\w.-]+\.[a-zA-Z]{2,})",
-        "command": r"(pip install|npm install|git clone|docker run)\s+([\w\-/.:@]+)",
-    }
-
-    # 重要关键词
-    IMPORTANT_KEYWORDS = [
-        "重要",
-        "关键",
-        "记住",
-        "保存",
-        "必须",
-        "不要忘",
-        "note",
-        "important",
-        "remember",
-        "key",
-    ]
-
-    def __init__(self):
-        """初始化提取器."""
-        self.compiled_patterns = {
-            name: re.compile(pattern, re.IGNORECASE)
-            for name, pattern in self.ENTITY_PATTERNS.items()
-        }
-
-    def extract_from_message(
-        self,
-        role: str,
-        content: str,
-    ) -> list[Memory]:
-        """从消息中提取记忆.
-
-        Args:
-            role: 消息角色
-            content: 消息内容
-
-        Returns:
-            提取的记忆列表
-        """
-        memories = []
-
-        if not content:
-            return memories
-
-        # 提取实体
-        for entity_type, pattern in self.compiled_patterns.items():
-            matches = pattern.findall(content)
-            for match in matches:
-                if isinstance(match, tuple):
-                    match = match[0] if match[0] else match[1]
-
-                entity_memory = Memory(
-                    content=f"[实体] {entity_type}: {match}",
-                    importance=3,
-                    category="entity",
-                    timestamp=datetime.now().isoformat(),
-                )
-                memories.append(entity_memory)
-
-        # 检测重要语句
-        for keyword in self.IMPORTANT_KEYWORDS:
-            if keyword.lower() in content.lower():
-                # 提取包含关键词的句子
-                sentences = content.split("。")
-                for sentence in sentences:
-                    if keyword.lower() in sentence.lower():
-                        important_memory = Memory(
-                            content=f"[重要] {sentence.strip()}",
-                            importance=5,
-                            category="important",
-                            timestamp=datetime.now().isoformat(),
-                        )
-                        memories.append(important_memory)
-                        break
-
-        # 提取决策信息（助手回复中的结论）
-        if role == "assistant":
-            decision_patterns = [
-                r"结论[是:：]\s*([^。]+)",
-                r"应该[是:：]\s*([^。]+)",
-                r"建议[是:：]\s*([^。]+)",
-                r"需要[是:：]\s*([^。]+)",
-            ]
-            for pattern in decision_patterns:
-                matches = re.findall(pattern, content, re.IGNORECASE)
-                for match in matches:
-                    decision_memory = Memory(
-                        content=f"[决策] {match.strip()}",
-                        importance=4,
-                        category="decision",
-                        timestamp=datetime.now().isoformat(),
-                    )
-                    memories.append(decision_memory)
-
-        return memories
-
-    def extract_from_tool_result(
-        self,
-        tool_name: str,
-        result: Any,
-    ) -> list[Memory]:
-        """从工具结果中提取记忆.
-
-        Args:
-            tool_name: 工具名称
-            result: 工具结果
-
-        Returns:
-            提取的记忆列表
-        """
-        memories = []
-
-        # 提取文件操作
-        if tool_name in ["file_write", "file_edit"]:
-            if hasattr(result, "data") and result.data:
-                file_path = result.data.get("file_path", "")
-                if file_path:
-                    memories.append(
-                        Memory(
-                            content=f"[文件操作] 修改了文件: {file_path}",
-                            importance=4,
-                            category="file_operation",
-                            timestamp=datetime.now().isoformat(),
-                        )
-                    )
-
-        # 提取命令执行
-        elif tool_name == "bash":
-            if hasattr(result, "data") and result.data:
-                command = result.data.get("command", "")
-                if command:
-                    memories.append(
-                        Memory(
-                            content=f"[命令执行] 执行了: {command}",
-                            importance=3,
-                            category="command",
-                            timestamp=datetime.now().isoformat(),
-                        )
-                    )
-
-        return memories
+    importance: int  # 1-10
+    source: str  # 来源（user/assistant/tool）
+    created_at: str
+    last_accessed: str
+    access_count: int
 
 
 class MemoryManager:
     """记忆管理器."""
 
-    def __init__(self, storage: Optional[SessionStorage] = None):
-        """初始化记忆管理器.
+    def __init__(self, storage: SessionStorage):
+        """初始化记忆管理器."""
+        self.storage = storage
+        self.db_path = storage.db_path
+        self._init_memory_table()
 
-        Args:
-            storage: 存储实例
-        """
-        self.storage = storage or SessionStorage()
-        self.extractor = MemoryExtractor()
+    def _init_memory_table(self) -> None:
+        """初始化记忆表."""
+        try:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS memories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        importance INTEGER DEFAULT 5,
+                        source TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        access_count INTEGER DEFAULT 0
+                    )
+                """)
 
-    def add_memory(
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_memories_session
+                    ON memories(session_id)
+                """)
+
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_memories_category
+                    ON memories(category)
+                """)
+
+                conn.commit()
+        except Exception as e:
+            print(f"初始化记忆表失败: {e}")
+
+    def store_memory(
         self,
         session_id: str,
         content: str,
-        importance: int = 1,
-    ) -> int:
-        """手动添加记忆.
-
-        Args:
-            session_id: 会话ID
-            content: 记忆内容
-            importance: 重要性
-
-        Returns:
-            记忆ID
-        """
-        return self.storage.add_memory(session_id, content, importance)
+        category: str = "fact",
+        importance: int = 5,
+        source: str = "user"
+    ) -> bool:
+        """存储记忆."""
+        try:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                conn.execute("""
+                    INSERT INTO memories
+                    (session_id, category, content, importance, source, created_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (session_id, category, content, importance, source))
+                conn.commit()
+            return True
+        except Exception as e:
+            print(f"存储记忆失败: {e}")
+            return False
 
     def extract_and_store(
         self,
         session_id: str,
         role: str,
-        content: str,
-    ) -> list[int]:
-        """提取并存储记忆.
+        content: str
+    ) -> list[Memory]:
+        """提取并存储记忆."""
+        memories = []
 
-        Args:
-            session_id: 会话ID
-            role: 消息角色
-            content: 消息内容
+        # 提取重要信息
+        extracted = self._extract_important_info(role, content)
 
-        Returns:
-            记忆ID列表
-        """
-        memories = self.extractor.extract_from_message(role, content)
-        memory_ids = []
+        for item in extracted:
+            if self.store_memory(
+                session_id=session_id,
+                content=item["content"],
+                category=item["category"],
+                importance=item["importance"],
+                source=role
+            ):
+                memories.append(Memory(
+                    id=None,
+                    session_id=session_id,
+                    category=item["category"],
+                    content=item["content"],
+                    importance=item["importance"],
+                    source=role,
+                    created_at=datetime.now().isoformat(),
+                    last_accessed=datetime.now().isoformat(),
+                    access_count=0,
+                ))
 
-        for memory in memories:
-            memory_id = self.storage.add_memory(
-                session_id,
-                memory.content,
-                memory.importance,
-            )
-            memory_ids.append(memory_id)
+        return memories
 
-        return memory_ids
+    def _extract_important_info(self, role: str, content: str) -> list[dict[str, Any]]:
+        """从内容中提取重要信息."""
+        results = []
+
+        # 提取文件路径
+        file_patterns = [
+            r'[\w\-./]+\.py',
+            r'[\w\-./]+\.js',
+            r'[\w\-./]+\.ts',
+            r'[\w\-./]+\.md',
+            r'[\w\-./]+\.json',
+            r'[\w\-./]+\.yaml',
+            r'[\w\-./]+\.yml',
+        ]
+
+        for pattern in file_patterns:
+            matches = re.findall(pattern, content)
+            for match in set(matches):
+                results.append({
+                    "content": f"相关文件: {match}",
+                    "category": "code",
+                    "importance": 7,
+                })
+
+        # 提取配置项
+        if "config" in content.lower() or "配置" in content:
+            results.append({
+                "content": content[:200],
+                "category": "preference",
+                "importance": 6,
+            })
+
+        # 提取决策点
+        if any(word in content.lower() for word in ["decision", "决定", "选择", "使用"]):
+            if len(content) < 500:
+                results.append({
+                    "content": content,
+                    "category": "decision",
+                    "importance": 8,
+                })
+
+        # 限制数量
+        return results[:5]
 
     def get_relevant_memories(
         self,
         session_id: str,
-        query: Optional[str] = None,
-        limit: int = 5,
-    ) -> list[dict[str, Any]]:
-        """获取相关记忆.
+        query: str,
+        limit: int = 5
+    ) -> list[Memory]:
+        """获取相关记忆."""
+        try:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                conn.row_factory = sqlite3.Row
 
-        Args:
-            session_id: 会话ID
-            query: 查询内容（可选）
-            limit: 数量限制
+                # 简单关键词匹配
+                keywords = [w for w in query.lower().split() if len(w) > 2]
 
-        Returns:
-            记忆列表
-        """
-        # 获取高重要性记忆
-        memories = self.storage.get_memories(
-            session_id,
-            min_importance=3,
-            limit=limit,
-        )
+                if not keywords:
+                    # 获取最近的高重要性记忆
+                    cursor = conn.execute("""
+                        SELECT * FROM memories
+                        WHERE session_id = ?
+                        ORDER BY importance DESC, last_accessed DESC
+                        LIMIT ?
+                    """, (session_id, limit))
+                else:
+                    # 基于关键词匹配
+                    conditions = " OR ".join(["content LIKE ?"] * len(keywords))
+                    params = [session_id] + [f"%{k}%" for k in keywords] + [limit]
 
-        # 如果有查询，进行简单匹配
-        if query and memories:
-            query_keywords = set(query.lower().split())
-            scored_memories = []
+                    cursor = conn.execute(f"""
+                        SELECT * FROM memories
+                        WHERE session_id = ? AND ({conditions})
+                        ORDER BY importance DESC, last_accessed DESC
+                        LIMIT ?
+                    """, params)
 
-            for memory in memories:
-                content = memory.get("content", "").lower()
-                score = sum(1 for kw in query_keywords if kw in content)
-                scored_memories.append((score, memory))
+                memories = []
+                for row in cursor.fetchall():
+                    memories.append(Memory(
+                        id=row["id"],
+                        session_id=row["session_id"],
+                        category=row["category"],
+                        content=row["content"],
+                        importance=row["importance"],
+                        source=row["source"],
+                        created_at=row["created_at"],
+                        last_accessed=row["last_accessed"],
+                        access_count=row["access_count"],
+                    ))
 
-            # 按相关性排序
-            scored_memories.sort(key=lambda x: x[0], reverse=True)
-            memories = [m for _, m in scored_memories]
+                # 更新访问统计
+                for mem in memories:
+                    if mem.id:
+                        conn.execute("""
+                            UPDATE memories
+                            SET access_count = access_count + 1,
+                                last_accessed = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        """, (mem.id,))
 
-        return memories
+                conn.commit()
+                return memories
 
-    def format_memories_for_prompt(
-        self,
-        memories: list[dict[str, Any]],
-    ) -> str:
-        """将记忆格式化为提示词.
+        except Exception as e:
+            print(f"获取记忆失败: {e}")
+            return []
 
-        Args:
-            memories: 记忆列表
-
-        Returns:
-            格式化字符串
-        """
+    def format_memories_for_prompt(self, memories: list[Memory]) -> str:
+        """格式化记忆为提示词."""
         if not memories:
             return ""
 
-        lines = ["\n[相关背景信息]"]
-
-        for i, memory in enumerate(memories, 1):
-            content = memory.get("content", "")
-            category = memory.get("importance", 1)
-            lines.append(f"{i}. {content}")
-
-        lines.append("[/相关背景信息]\n")
+        lines = ["[相关记忆]"]
+        for mem in memories[:3]:  # 最多3条
+            lines.append(f"- {mem.content}")
 
         return "\n".join(lines)
 
-    def clear_session_memories(self, session_id: str) -> None:
-        """清空会话记忆.
+    def get_session_memories(
+        self,
+        session_id: str,
+        category: Optional[str] = None
+    ) -> list[Memory]:
+        """获取会话的所有记忆."""
+        try:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                conn.row_factory = sqlite3.Row
 
-        Args:
-            session_id: 会话ID
-        """
-        # 这里需要添加storage的方法
-        # 暂时不实现
-        pass
+                if category:
+                    cursor = conn.execute(
+                        """SELECT * FROM memories
+                           WHERE session_id = ? AND category = ?
+                           ORDER BY importance DESC, created_at DESC""",
+                        (session_id, category)
+                    )
+                else:
+                    cursor = conn.execute(
+                        """SELECT * FROM memories
+                           WHERE session_id = ?
+                           ORDER BY importance DESC, created_at DESC""",
+                        (session_id,)
+                    )
+
+                return [
+                    Memory(
+                        id=row["id"],
+                        session_id=row["session_id"],
+                        category=row["category"],
+                        content=row["content"],
+                        importance=row["importance"],
+                        source=row["source"],
+                        created_at=row["created_at"],
+                        last_accessed=row["last_accessed"],
+                        access_count=row["access_count"],
+                    )
+                    for row in cursor.fetchall()
+                ]
+
+        except Exception as e:
+            print(f"获取会话记忆失败: {e}")
+            return []
+
+    def delete_memory(self, memory_id: int) -> bool:
+        """删除记忆."""
+        try:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.execute(
+                    "DELETE FROM memories WHERE id = ?",
+                    (memory_id,)
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            print(f"删除记忆失败: {e}")
+            return False
+
+    def cleanup_old_memories(self, days: int = 30) -> int:
+        """清理旧记忆."""
+        try:
+            cutoff = datetime.now() - timedelta(days=days)
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.execute(
+                    "DELETE FROM memories WHERE last_accessed < ?",
+                    (cutoff.isoformat(),)
+                )
+                conn.commit()
+                return cursor.rowcount
+        except Exception as e:
+            print(f"清理旧记忆失败: {e}")
+            return 0
+
+    def get_memory_stats(self, session_id: Optional[str] = None) -> dict[str, Any]:
+        """获取记忆统计."""
+        try:
+            with sqlite3.connect(str(self.db_path)) as conn:
+                conn.row_factory = sqlite3.Row
+
+                if session_id:
+                    cursor = conn.execute(
+                        "SELECT COUNT(*) as count FROM memories WHERE session_id = ?",
+                        (session_id,)
+                    )
+                    total = cursor.fetchone()["count"]
+
+                    cursor = conn.execute(
+                        """SELECT category, COUNT(*) as count
+                           FROM memories WHERE session_id = ?
+                           GROUP BY category""",
+                        (session_id,)
+                    )
+                    by_category = {row["category"]: row["count"] for row in cursor.fetchall()}
+                else:
+                    cursor = conn.execute("SELECT COUNT(*) as count FROM memories")
+                    total = cursor.fetchone()["count"]
+
+                    cursor = conn.execute(
+                        """SELECT category, COUNT(*) as count
+                           FROM memories GROUP BY category"""
+                    )
+                    by_category = {row["category"]: row["count"] for row in cursor.fetchall()}
+
+                return {
+                    "total_memories": total,
+                    "by_category": by_category,
+                }
+        except Exception as e:
+            print(f"获取记忆统计失败: {e}")
+            return {"total_memories": 0, "by_category": {}}
