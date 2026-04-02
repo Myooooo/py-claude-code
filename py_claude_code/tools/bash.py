@@ -3,7 +3,7 @@
 import asyncio
 import re
 import shlex
-from typing import Any
+from typing import Any, ClassVar
 from pydantic import Field, field_validator
 from .base import BaseTool, ToolParameters, ToolResult, tool_registry
 
@@ -49,7 +49,7 @@ class BashTool(BaseTool):
 - 环境变量会继承当前shell"""
 
     # 危险命令警告列表 - 使用正则表达式，更健壮
-    DANGEROUS_PATTERNS = [
+    DANGEROUS_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         # 文件系统破坏
         (r"\brm\s+-[a-zA-Z]*f[a-zA-Z]*\s+.*[/~]", "递归删除根目录或家目录"),
         (r"\brm\s+.*\s+-[a-zA-Z]*f[a-zA-Z]*\s+.*[/~]", "递归删除根目录或家目录"),

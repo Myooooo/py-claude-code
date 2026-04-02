@@ -4,7 +4,7 @@ import fnmatch
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from pydantic import Field, field_validator
 from .base import BaseTool, ToolParameters, ToolResult, tool_registry
 
@@ -104,7 +104,7 @@ class GlobTool(BaseTool):
 - max_depth: 最大搜索深度（默认5，最大10）
 - max_results: 最大结果数（默认100，最大500）"""
 
-    IGNORE_DIRS = {
+    IGNORE_DIRS: ClassVar[set[str]] = {
         ".git", "__pycache__", ".pytest_cache", "node_modules",
         ".venv", "venv", ".env", "dist", "build", ".tox",
         ".idea", ".vscode", ".vs", "target", ".claude"
@@ -252,14 +252,14 @@ class GrepTool(BaseTool):
 - 默认最大返回50条结果
 - 默认最大搜索深度5层"""
 
-    IGNORE_DIRS = {
+    IGNORE_DIRS: ClassVar[set[str]] = {
         ".git", "__pycache__", ".pytest_cache", "node_modules",
         ".venv", "venv", ".env", "dist", "build", ".tox",
         ".idea", ".vscode", ".vs", "target", ".claude"
     }
 
     # 二进制文件扩展名
-    BINARY_EXTENSIONS = {
+    BINARY_EXTENSIONS: ClassVar[set[str]] = {
         ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg",
         ".mp3", ".mp4", ".avi", ".mov", ".wmv",
         ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar",
