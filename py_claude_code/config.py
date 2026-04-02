@@ -33,6 +33,8 @@ class Config(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        # 环境变量名使用 OPENAI_ 前缀
+        env_prefix="OPENAI_",
     )
 
     # OpenAI API配置
@@ -46,47 +48,57 @@ class Config(BaseSettings):
         description="使用的模型名称"
     )
 
-    # 应用配置
+    # 应用配置（显式指定 alias，因为 .env 中不使用 OPENAI_ 前缀）
     max_tokens: int = Field(
         default=4096,
+        alias="MAX_TOKENS",
         description="最大生成token数"
     )
     temperature: float = Field(
         default=0.7,
+        alias="TEMPERATURE",
         description="采样温度"
     )
     max_context_messages: int = Field(
         default=50,
+        alias="MAX_CONTEXT_MESSAGES",
         description="最大上下文消息数（已废弃，使用max_context_tokens）"
     )
     max_context_tokens: int = Field(
         default=100000,
+        alias="MAX_CONTEXT_TOKENS",
         description="最大上下文token数"
     )
     enable_tool_summarization: bool = Field(
         default=True,
+        alias="ENABLE_TOOL_SUMMARIZATION",
         description="是否启用工具结果自动摘要"
     )
     enable_session_persistence: bool = Field(
         default=True,
+        alias="ENABLE_SESSION_PERSISTENCE",
         description="是否启用会话持久化存储"
     )
     session_db_path: str = Field(
         default=".claude_sessions.db",
+        alias="SESSION_DB_PATH",
         description="会话数据库存储路径"
     )
     max_tool_iterations: int = Field(
         default=10,
+        alias="MAX_TOOL_ITERATIONS",
         description="最大工具调用迭代次数"
     )
 
     # UI配置
     theme: str = Field(
         default="monokai",
+        alias="THEME",
         description="代码高亮主题"
     )
     code_width: int = Field(
         default=120,
+        alias="CODE_WIDTH",
         description="代码显示宽度"
     )
 
@@ -106,6 +118,7 @@ class Config(BaseSettings):
 4. 处理大文件时考虑分批处理
 
 请始终保持专业和友好的态度。""",
+        alias="SYSTEM_PROMPT",
         description="系统提示词"
     )
 

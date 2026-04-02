@@ -48,23 +48,20 @@ class UI:
         self.console.print(panel)
 
         # 帮助提示
-        help_text = """
-[bold]命令:[/bold]
-  [cyan]/help[/cyan]     显示帮助
-  [cyan]/clear[/cyan]    清空对话历史
-  [cyan]/reset[/cyan]    重置会话
-  [cyan]/exit[/cyan]     退出程序
-  [cyan]/tools[/cyan]    查看可用工具
-  [cyan]/cost[/cyan]     查看成本统计
-  [cyan]/budget[/cyan]   查看预算
-
-[bold]提示:[/bold]
-  • 直接输入问题开始对话
-  • 支持多轮对话和工具调用
-  • 使用 [cyan]Ctrl+C[/cyan] 取消当前操作
-  • 成本追踪已启用，每次请求后显示费用
-        """
-        self.console.print(Markdown(help_text))
+        self.console.print("[bold]命令:[/bold]")
+        self.console.print("  [cyan]/help[/cyan]     显示帮助")
+        self.console.print("  [cyan]/clear[/cyan]    清空对话历史")
+        self.console.print("  [cyan]/reset[/cyan]    重置会话")
+        self.console.print("  [cyan]/exit[/cyan]     退出程序")
+        self.console.print("  [cyan]/tools[/cyan]    查看可用工具")
+        self.console.print("  [cyan]/cost[/cyan]     查看成本统计")
+        self.console.print("  [cyan]/budget[/cyan]   查看预算")
+        self.console.print()
+        self.console.print("[bold]提示:[/bold]")
+        self.console.print("  • 直接输入问题开始对话")
+        self.console.print("  • 支持多轮对话和工具调用")
+        self.console.print("  • 使用 [cyan]Ctrl+C[/cyan] 取消当前操作")
+        self.console.print("  • 成本追踪已启用，每次请求后显示费用")
         self.console.print()
 
     def print_goodbye(self) -> None:
