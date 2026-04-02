@@ -1,9 +1,29 @@
 """配置管理模块."""
 
 import os
+from pathlib import Path
 from typing import Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def get_env_file_paths() -> list[str]:
+    """获取可能的 .env 文件路径列表."""
+    paths = []
+    
+    # 1. 当前工作目录
+    paths.append(".env")
+    
+    # 2. 项目根目录（与 config.py 同级）
+    project_root = Path(__file__).parent
+    paths.append(str(project_root / ".env"))
+    
+    # 3. 父目录（如果从模块内运行）
+    parent_dir = project_root.parent
+    if (parent_dir / ".env").exists():
+        paths.append(str(parent_dir / ".env"))
+    
+    return paths
 
 
 class Config(BaseSettings):
@@ -121,8 +141,21 @@ class Config(BaseSettings):
         }
 
 
+def _load_env_file() -> None:
+    """从可能的位置加载 .env 文件到环境变量."""
+    from dotenv import load_dotenv
+    
+    env_paths = get_env_file_paths()
+    for env_path in env_paths:
+        path = Path(env_path)
+        if path.exists():
+            load_dotenv(dotenv_path=path, override=True)
+            return  # 只加载第一个找到的
+
+
 def load_config() -> Config:
-    """加载配置."""
+    """加载配置，尝试从多个位置查找 .env 文件."""
+    _load_env_file()
     return Config()
 
 
