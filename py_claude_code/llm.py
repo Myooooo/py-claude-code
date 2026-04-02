@@ -366,9 +366,8 @@ class OpenAIClient:
         last_response: LLMResponse | None = None
 
         while iterations < max_iterations:
-            # 发送请求
-            response = await self.chat(current_messages, tools=tools)
-
+            # 发送请求（工具调用强制使用非流式输出，避免 ENABLE_STREAMING 配置影响）
+            response = await self.chat(current_messages, tools=tools, stream=False)
             if isinstance(response, AsyncIterator):
                 raise ValueError("流式输出不支持工具调用")
 
