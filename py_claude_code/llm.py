@@ -95,6 +95,7 @@ class LLMResponse:
     usage: dict[str, int] | None = None
     raw_response: Any | None = None
     cost_record: CostRecord | None = None
+    thinking: str | None = None  # 思考过程内容
 
     @property
     def has_tool_calls(self) -> bool:
@@ -187,7 +188,7 @@ class OpenAIClient:
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
-        stream: bool = False,
+        stream: bool | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> LLMResponse | AsyncIterator[str]:
@@ -197,13 +198,16 @@ class OpenAIClient:
         Args:
             messages: 消息列表
             tools: 可用工具列表
-            stream: 是否流式输出
+            stream: 是否流式输出，None 时使用配置值
             temperature: 采样温度
             max_tokens: 最大token数
 
         Returns:
             LLMResponse 或 流式输出迭代器
         """
+        # 使用配置值作为默认值
+        use_stream = stream if stream is not None else self.config.enable_streaming
+
         # 转换消息格式
         api_messages = [msg.to_dict() for msg in messages]
 
@@ -213,7 +217,7 @@ class OpenAIClient:
             "messages": api_messages,
             "temperature": temperature or self.config.temperature,
             "max_tokens": max_tokens or self.config.max_tokens,
-            "stream": stream,
+            "stream": use_stream,
         }
 
         # 添加工具
@@ -221,8 +225,8 @@ class OpenAIClient:
             params["tools"] = tools
             params["tool_choice"] = "auto"
 
-        if stream:
-            return self._chat_stream(params)
+        if use_stream:
+            return self._chat_stream(params, show_thinking=self.config.show_thinking)
         else:
             return await self._chat_completion(params)
 
@@ -241,6 +245,25 @@ class OpenAIClient:
             if message.tool_calls:
                 for tc in message.tool_calls:
                     tool_calls.append(ToolCall.from_api(tc))
+
+            # 提取思考过程（支持多种格式）
+            thinking = None
+            if self.config.show_thinking:
+                # OpenAI o1 模型的 reasoning_content
+                if hasattr(message, "reasoning_content") and message.reasoning_content:
+                    thinking = message.reasoning_content
+                # Anthropic Claude 的 thinking 字段
+                elif hasattr(message, "thinking") and message.thinking:
+                    thinking = message.thinking
+                # 其他可能的思考字段
+                else:
+                    thinking_fields = ["thought", "reasoning", "reflection"]
+                    for field in thinking_fields:
+                        if hasattr(message, field):
+                            value = getattr(message, field)
+                            if value:
+                                thinking = value
+                                break
 
             # 提取使用量
             usage = None
@@ -268,13 +291,21 @@ class OpenAIClient:
                 usage=usage,
                 raw_response=response,
                 cost_record=cost_record,
+                thinking=thinking,
             )
 
         except Exception as e:
             raise LLMError(f"API请求失败: {e}") from e
 
-    async def _chat_stream(self, params: dict[str, Any]) -> AsyncIterator[str]:
-        """流式聊天完成."""
+    async def _chat_stream(
+        self, params: dict[str, Any], show_thinking: bool = False
+    ) -> AsyncIterator[str]:
+        """流式聊天完成.
+        
+        Args:
+            params: 请求参数
+            show_thinking: 是否显示思考过程
+        """
         try:
             stream = await self.client.chat.completions.create(**params)
 
@@ -282,8 +313,28 @@ class OpenAIClient:
                 chunk: ChatCompletionChunk
                 if chunk.choices and chunk.choices[0].delta:
                     delta = chunk.choices[0].delta
+                    
+                    # 标准内容
                     if delta.content:
                         yield delta.content
+                    
+                    # 思考过程（支持多种格式）
+                    if show_thinking:
+                        # OpenAI o1 模型的 reasoning_content
+                        if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                            yield f"\n[思考] {delta.reasoning_content}\n"
+                        
+                        # Anthropic Claude 的 thinking 字段
+                        if hasattr(delta, "thinking") and delta.thinking:
+                            yield f"\n[思考] {delta.thinking}\n"
+                        
+                        # 其他可能的思考字段
+                        thinking_fields = ["thought", "reasoning", "reflection"]
+                        for field in thinking_fields:
+                            if hasattr(delta, field):
+                                value = getattr(delta, field)
+                                if value:
+                                    yield f"\n[思考] {value}\n"
 
         except Exception as e:
             raise LLMError(f"流式API请求失败: {e}") from e

@@ -102,6 +102,20 @@ class Config(BaseSettings):
         description="代码显示宽度"
     )
 
+    # 流式输出配置
+    enable_streaming: bool = Field(
+        default=True,
+        alias="ENABLE_STREAMING",
+        description="是否启用流式输出"
+    )
+
+    # 思考过程显示配置
+    show_thinking: bool = Field(
+        default=False,
+        alias="SHOW_THINKING",
+        description="是否显示模型的思考过程"
+    )
+
     # 系统提示词
     system_prompt: str = Field(
         default="""你是一个专业的编程助手，名为 Claude Code Python版。
