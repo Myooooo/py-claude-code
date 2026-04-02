@@ -67,7 +67,7 @@ class BashTool(BaseTool):
     ]
 
     # 需要额外确认的危险操作
-    CAUTION_PATTERNS = [
+    CAUTION_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         (r"\brm\s+-[a-zA-Z]*r[a-zA-Z]*", "递归删除"),
         (r"\brm\s+.*\*", "使用通配符删除"),
         (r"\bgit\s+reset\s+--hard", "强制重置git仓库"),
