@@ -56,9 +56,9 @@ review.py
 gemini_review_full.py
 fix_issues.py
 
-# Documentation (keep these)
-# README.md
-# DESIGN.md
-# OPTIMIZATION_REPORT.md
-# CONTEXT_IMPROVEMENTS.md
-# DEVELOPMENT_PLAN.md
+# Temporary documentation (only keep README.md)
+DESIGN.md
+OPTIMIZATION_REPORT.md
+CONTEXT_IMPROVEMENTS.md
+DEVELOPMENT_PLAN.md
+OPTIMIZE_PROMPT.md

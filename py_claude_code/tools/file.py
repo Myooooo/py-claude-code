@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 from pydantic import Field, field_validator
 from .base import BaseTool, ToolParameters, ToolResult, tool_registry
 
@@ -342,7 +342,7 @@ class ViewTool(BaseTool):
 - 深度过大可能产生大量输出
 - 会自动跳过常见的忽略目录（如 .git, node_modules）"""
 
-    IGNORE_DIRS = {
+    IGNORE_DIRS: ClassVar[set[str]] = {
         ".git", "__pycache__", ".pytest_cache", "node_modules",
         ".venv", "venv", ".env", "dist", "build", ".tox",
         ".idea", ".vscode", ".vs", "target", ".claude"

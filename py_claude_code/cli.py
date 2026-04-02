@@ -11,11 +11,11 @@ from rich import print as rprint
 from rich.panel import Panel
 from rich.text import Text
 
-from .config import Config, load_config
-from .chat import ChatManager, ChatSession
-from .tools.base import tool_registry
-from .ui import UI, console
-from .cost_tracker import get_cost_tracker, BudgetConfig
+from py_claude_code.config import Config, load_config
+from py_claude_code.chat import ChatManager, ChatSession
+from py_claude_code.tools.base import tool_registry
+from py_claude_code.ui import UI, console
+from py_claude_code.cost_tracker import get_cost_tracker, BudgetConfig
 
 # 全局聊天管理器 (支持成本追踪)
 chat_manager: ChatManager | None = None
