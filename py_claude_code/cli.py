@@ -6,6 +6,11 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
+import typer
+from rich import print as rprint
+from rich.panel import Panel
+from rich.text import Text
+
 # 支持直接运行 cli.py
 if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, str(Path(__file__).parent.parent))
