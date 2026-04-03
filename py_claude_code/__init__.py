@@ -24,6 +24,13 @@ from .memory import MemoryManager
 from .cost_tracker import CostTracker, CostRecord, CostSummary, BudgetConfig, get_cost_tracker, ModelPricing
 from .ui import UI, console
 
+# 导入核心任务模块（需要在工具导入之前）
+from . import tasks as _tasks_module
+
+# 导入工具模块以触发工具注册
+# 注意：这些导入是为了副作用（工具注册），不直接导出
+from .tools import file, bash, search, todo, web, tasks as _task_tools
+
 __all__ = [
     "__version__",
     "Config",

@@ -89,7 +89,7 @@ class BashTool(BaseTool):
             danger_check = self._check_dangerous_command(command)
             if danger_check:
                 pattern, description = danger_check
-                return ToolResult.error(
+                return ToolResult.failure(
                     f"🚫 检测到危险操作: {description}\n"
                     f"匹配模式: {pattern}\n"
                     f"此命令已被阻止执行。如需执行，请手动在终端运行。",
@@ -122,7 +122,7 @@ class BashTool(BaseTool):
             except asyncio.TimeoutError:
                 process.kill()
                 await process.wait()
-                return ToolResult.error(
+                return ToolResult.failure(
                     f"命令执行超时（{timeout}秒）",
                     command=command,
                     return_code=-1,
@@ -157,7 +157,7 @@ class BashTool(BaseTool):
             )
 
         except Exception as e:
-            return ToolResult.error(f"执行命令失败: {e}", command=command)
+            return ToolResult.failure(f"执行命令失败: {e}", command=command)
 
     def _check_dangerous_command(self, command: str) -> tuple[str, str] | None:
         """检查命令是否包含危险模式.

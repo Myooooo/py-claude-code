@@ -26,8 +26,8 @@ class ToolResult(BaseModel):
         return cls(success=True, content=content, data=data)
 
     @classmethod
-    def error(cls, message: str, **data: Any) -> "ToolResult":
-        """创建错误结果."""
+    def failure(cls, message: str, **data: Any) -> "ToolResult":
+        """创建错误结果（使用 failure 避免与 error 字段冲突）."""
         return cls(success=False, error=message, data=data)
 
 

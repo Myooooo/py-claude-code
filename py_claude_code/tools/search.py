@@ -123,10 +123,10 @@ class GlobTool(BaseTool):
             base_path = Path(path).expanduser().resolve()
 
             if not base_path.exists():
-                return ToolResult.error(f"路径不存在: {path}")
+                return ToolResult.failure(f"路径不存在: {path}")
 
             if not base_path.is_dir():
-                return ToolResult.error(f"路径不是目录: {path}")
+                return ToolResult.failure(f"路径不是目录: {path}")
 
             # 执行搜索
             matches = list(self._glob_search(base_path, pattern, max_depth, max_results))
@@ -161,7 +161,7 @@ class GlobTool(BaseTool):
             )
 
         except Exception as e:
-            return ToolResult.error(f"搜索失败: {e}", pattern=pattern)
+            return ToolResult.failure(f"搜索失败: {e}", pattern=pattern)
 
     def _glob_search(
         self,
@@ -284,13 +284,13 @@ class GrepTool(BaseTool):
             base_path = Path(path).expanduser().resolve()
 
             if not base_path.exists():
-                return ToolResult.error(f"路径不存在: {path}")
+                return ToolResult.failure(f"路径不存在: {path}")
 
             # 编译正则表达式
             try:
                 regex = re.compile(pattern)
             except re.error as e:
-                return ToolResult.error(f"无效的正则表达式: {e}")
+                return ToolResult.failure(f"无效的正则表达式: {e}")
 
             results = []
 
@@ -338,7 +338,7 @@ class GrepTool(BaseTool):
             )
 
         except Exception as e:
-            return ToolResult.error(f"搜索失败: {e}", pattern=pattern)
+            return ToolResult.failure(f"搜索失败: {e}", pattern=pattern)
 
     def _search_directory(
         self,

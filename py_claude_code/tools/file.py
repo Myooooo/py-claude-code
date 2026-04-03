@@ -112,17 +112,17 @@ class FileReadTool(BaseTool):
             path = Path(file_path).expanduser().resolve()
 
             if not path.exists():
-                return ToolResult.error(f"文件不存在: {file_path}")
+                return ToolResult.failure(f"文件不存在: {file_path}")
 
             if not path.is_file():
-                return ToolResult.error(f"路径不是文件: {file_path}")
+                return ToolResult.failure(f"路径不是文件: {file_path}")
 
             # 大文件保护检查
             file_size = path.stat().st_size
             max_size = FileReadParams.MAX_FILE_SIZE_MB * 1024 * 1024
 
             if file_size > max_size:
-                return ToolResult.error(
+                return ToolResult.failure(
                     f"文件过大 ({file_size / 1024 / 1024:.1f}MB)，超过安全限制 "
                     f"({FileReadParams.MAX_FILE_SIZE_MB}MB)。"
                     f"建议使用 offset 和 limit 参数分批读取。",
@@ -149,7 +149,7 @@ class FileReadTool(BaseTool):
                         next(f)
                         total_lines += 1
                     except StopIteration:
-                        return ToolResult.error(f"offset {offset} 超出文件行数范围")
+                        return ToolResult.failure(f"offset {offset} 超出文件行数范围")
 
                 # 读取指定行数
                 remaining = effective_limit if effective_limit else None
@@ -181,11 +181,11 @@ class FileReadTool(BaseTool):
             )
 
         except UnicodeDecodeError:
-            return ToolResult.error(f"无法以UTF-8编码读取文件: {file_path}")
+            return ToolResult.failure(f"无法以UTF-8编码读取文件: {file_path}")
         except PermissionError:
-            return ToolResult.error(f"无权限读取文件: {file_path}")
+            return ToolResult.failure(f"无权限读取文件: {file_path}")
         except Exception as e:
-            return ToolResult.error(f"读取文件失败: {e}")
+            return ToolResult.failure(f"读取文件失败: {e}")
 
     def get_parameters_schema(self) -> dict[str, Any]:
         """获取参数schema."""
@@ -231,9 +231,9 @@ class FileWriteTool(BaseTool):
             )
 
         except PermissionError:
-            return ToolResult.error(f"无权限写入文件: {file_path}")
+            return ToolResult.failure(f"无权限写入文件: {file_path}")
         except Exception as e:
-            return ToolResult.error(f"写入文件失败: {e}")
+            return ToolResult.failure(f"写入文件失败: {e}")
 
     def get_parameters_schema(self) -> dict[str, Any]:
         """获取参数schema."""
@@ -266,17 +266,17 @@ class FileEditTool(BaseTool):
             path = Path(file_path).expanduser().resolve()
 
             if not path.exists():
-                return ToolResult.error(f"文件不存在: {file_path}")
+                return ToolResult.failure(f"文件不存在: {file_path}")
 
             if not path.is_file():
-                return ToolResult.error(f"路径不是文件: {file_path}")
+                return ToolResult.failure(f"路径不是文件: {file_path}")
 
             # 读取文件内容
             content = path.read_text(encoding="utf-8")
 
             # 检查old_string是否存在
             if old_string not in content:
-                return ToolResult.error(
+                return ToolResult.failure(
                     f"未找到要替换的内容。请确保 old_string 与文件中的内容完全匹配。",
                     file_path=str(path),
                 )
@@ -322,9 +322,9 @@ class FileEditTool(BaseTool):
             )
 
         except PermissionError:
-            return ToolResult.error(f"无权限编辑文件: {file_path}")
+            return ToolResult.failure(f"无权限编辑文件: {file_path}")
         except Exception as e:
-            return ToolResult.error(f"编辑文件失败: {e}")
+            return ToolResult.failure(f"编辑文件失败: {e}")
 
     def get_parameters_schema(self) -> dict[str, Any]:
         """获取参数schema."""
@@ -359,7 +359,7 @@ class ViewTool(BaseTool):
             base_path = Path(path).expanduser().resolve()
 
             if not base_path.exists():
-                return ToolResult.error(f"路径不存在: {path}")
+                return ToolResult.failure(f"路径不存在: {path}")
 
             if base_path.is_file():
                 # 如果是文件，显示文件信息
@@ -380,9 +380,9 @@ class ViewTool(BaseTool):
             )
 
         except PermissionError:
-            return ToolResult.error(f"无权限访问路径: {path}")
+            return ToolResult.failure(f"无权限访问路径: {path}")
         except Exception as e:
-            return ToolResult.error(f"查看目录失败: {e}")
+            return ToolResult.failure(f"查看目录失败: {e}")
 
     def _build_tree(
         self,
