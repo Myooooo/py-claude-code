@@ -62,3 +62,74 @@ OPTIMIZATION_REPORT.md
 CONTEXT_IMPROVEMENTS.md
 DEVELOPMENT_PLAN.md
 OPTIMIZE_PROMPT.md
+
+# Additional cache and temporary files
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+*.cover
+*.py,cover
+.hypothesis/
+.pytype/
+.ruff_cache/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Test and CI artifacts
+.tox/
+noxfile.py
+.nox/
+.coverage
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyCharm
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# VSCode
+.vscode/
+*.code-workspace
+.history/
+
+# Additional OS files
+.Spotlight-V100
+.Trashes
+*.swp
+*.swo
+*~
+*.tmp
+
+# Project specific cache
+.claude_costs.db
+.claude_sessions.db
+*.sessions.db
+*.costs.db
+
+# Build artifacts
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Local config overrides
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
